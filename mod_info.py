@@ -268,17 +268,20 @@ class ModPack:
             if len(mod.dependents) == 0:
                 graph = DependencyGraph(mod)
                 graphs.append(graph)
+                # DependencyGraph._ALL_DEPS[mod.modid] = graph.nodes[0]
 
         print(f'total leaf mods: {len(graphs)}')
 
         def process_node(node: DependencyGraph.Node):
             for mod in node.mod_list:
+                if mod.modid in ['forge', 'minecraft']:
+                    continue
                 if mod.modid == 'create':
                     print('found create')
                 # print(mod.modid)
                 for dep in mod.dependents:
-                    # if dep.modid in ['forge', 'minecraft']:
-                    #     continue
+                    if dep.modid in ['forge', 'minecraft']:
+                        continue
                     # if mod hasn't been processed and mod exists:
                     if dep.required and not dep.modid in DependencyGraph._ALL_DEPS and dep.modid in self.mods:
                         dep_mod = self.mods[dep.modid]
@@ -293,8 +296,8 @@ class ModPack:
                         process_node(new_node)
 
                 for dep in mod.dependencies:
-                    # if dep.modid in ['forge', 'minecraft']:
-                    #     continue
+                    if dep.modid in ['forge', 'minecraft']:
+                        continue
                     # if mod hasn't been processed and mod exists:
                     if dep.required and not dep.modid in DependencyGraph._ALL_DEPS and dep.modid in self.mods:
                         dep_mod = self.mods[dep.modid]
@@ -310,10 +313,12 @@ class ModPack:
 
         for graph in graphs:
             process_node(graph.nodes[0])
+            DependencyGraph._ALL_DEPS[graph.nodes[0].mod_list[0].modid] = graph.nodes[0]
 
-        graph_set: Set[DependencyGraph] = set()
+        graph_set: List[DependencyGraph] = []
         for node in DependencyGraph._ALL_DEPS.values():
-            graph_set.add(node.graph)
+            if not node.graph in graph_set:
+                graph_set.append(node.graph)
         print(f'total separate graphs: {len(graph_set)}')
 
         for i, graph in enumerate(graph_set):
@@ -338,7 +343,7 @@ class ModPack:
         error_files = ['latest.log', 'debug.log', 'latest_stdout.log']
         search_filename = ''
         for potential in error_files:
-            if logs.has(potential) and error in FileReal(logs, potential).read().decode('ascii', errors="ignore"):
+            if logs.has(potential) and error in FileReal(logs, potential).read().decode(errors="ignore"):
                 search_filename = potential
 
         if search_filename:
