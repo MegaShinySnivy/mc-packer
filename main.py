@@ -24,7 +24,7 @@ def main(args: argparse.Namespace):
         return
     if args.versions:
         for modid, version in [override.split('=') for override in args.versions.split(',')]:
-            if modid not in pack.mods:
+            if not modid in pack.mods:
                 mod = Mod()
                 mod._version = Version.fromString(version)
                 mod.filename = '[no file]'
@@ -36,7 +36,7 @@ def main(args: argparse.Namespace):
 
     if args.lies:
         for modid in args.lies.split(','):
-            if modid not in pack.mods:
+            if not modid in pack.mods:
                 continue
             mod = pack.mods[modid]
             for dep in mod.dependencies:

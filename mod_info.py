@@ -204,7 +204,7 @@ class ModPack:
                     dependency.dependents.append(rdep_mod)
 
                 else:
-                    if dep.required and dep.modid not in []:
+                    if dep.required and not dep.modid in []:
                         mod.errors.append(f"Could not find mod '{dep.modid}'! requirements: {dep.version_reqs}")
 
         err_num = 0
@@ -226,7 +226,7 @@ class ModPack:
         return err_num == 0
     
     def why_depends(self, modid: str, error: bool) -> None:
-        if modid not in self.mods:
+        if not modid in self.mods:
             print('==================================')
             print(f'why-depends: modid "{modid}" not found!\n')
             return
@@ -252,7 +252,7 @@ class ModPack:
 
         # find each "root" mod (has no dependencies)
         for mod in self.mods.values():
-            if len([dep for dep in mod.dependencies if dep.modid not in ['minecraft', 'forge']]) == 0: # if mod has no other dependencies than these:
+            if len([dep for dep in mod.dependencies if not dep.modid in ['minecraft', 'forge']]) == 0: # if mod has no other dependencies than these:
                 graph = DependencyGraph(mod)
                 graphs.append(graph)
                 graph_mapping[mod.modid] = graph
