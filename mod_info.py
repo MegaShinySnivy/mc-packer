@@ -276,8 +276,6 @@ class ModPack:
             for mod in node.mod_list:
                 if mod.modid in ['forge', 'minecraft']:
                     continue
-                if mod.modid == 'create':
-                    print('found create')
                 # print(mod.modid)
                 for dep in mod.dependents:
                     if dep.modid in ['forge', 'minecraft']:
