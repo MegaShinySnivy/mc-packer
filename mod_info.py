@@ -292,6 +292,8 @@ class ModPack:
                         DependencyGraph._ALL_DEPS[dep.modid] = new_node
                         node.graph.nodes.append(new_node)
                         process_node(new_node)
+                    elif dep.required and dep.modid in self.mods and DependencyGraph._ALL_DEPS[dep.modid] is not node:
+                        node.graph = DependencyGraph._ALL_DEPS[dep.modid].graph
 
                 for dep in mod.dependencies:
                     if dep.modid in ['forge', 'minecraft']:
@@ -308,6 +310,8 @@ class ModPack:
                         DependencyGraph._ALL_DEPS[dep.modid] = new_node
                         node.graph.nodes.append(new_node)
                         process_node(new_node)
+                    elif dep.required and dep.modid in self.mods and DependencyGraph._ALL_DEPS[dep.modid] is not node:
+                        node.graph = DependencyGraph._ALL_DEPS[dep.modid].graph
 
         for graph in graphs:
             process_node(graph.nodes[0])

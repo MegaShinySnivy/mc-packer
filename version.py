@@ -105,7 +105,9 @@ class Version:
         valid_parts = []
         part_candidates = text.split('-')
         for candidate in part_candidates:
-            
+            if candidate == '':
+                continue
+
             # disallow candidates that are:
             #   - text-only
             #   - commit refs
@@ -129,7 +131,7 @@ class Version:
                 valid_parts.append(candidate)
 
         if len(valid_parts) > 0:
-            return cls(text, [VersionPart([int(x) for x in components.split('.')]) for components in valid_parts])
+            return cls(text, [VersionPart([int(x) for x in components.split('.') if x != '']) for components in valid_parts])
             
         raise BadVersionString(f"Invalid version string '{text}'")
 
