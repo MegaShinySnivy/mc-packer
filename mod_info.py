@@ -4,7 +4,7 @@ from attrs import define
 from tqdm import tqdm
 import toml
 
-from typing import cast, List, Dict, Union, Any, Optional
+from typing import cast, List, Dict, Union, Any, Optional, Set
 from zipfile import ZipFile
 import io
 import os
@@ -61,10 +61,6 @@ class Mod:
         self.dependents = []
         self.errors = []
         self.manifest = {}
-
-    def enable(self, pack: 'ModPack', modid: str, enable_children: bool = False) -> None: ...
-
-    def disable(self, pack: 'ModPack') -> None: ...
 
     @classmethod
     def load(cls, filename: str, toml_data: Dict[str, Any], manifest: str) -> 'Mod':
@@ -129,30 +125,37 @@ class Mod:
         return instance
 
 class DependencyGraph:
-    _ALL: List['DependencyGraph'] = []
-    _ALL_DEPS: Dict[str, 'DependencyGraph'] = {}
+    _ALL_GRAPHS:    List['DependencyGraph'] = []
+    _ALL_DEPS:      Dict[str, 'Node'] = {}
 
-    @define
     class Node:
-        mod: Mod
-        rank: int
+        mod_list:   List[Mod]
+        graph:      'DependencyGraph'
+
+        def __init__(self, mod: Mod, graph: 'DependencyGraph'):
+            self.mod_list = [mod]
+            self.graph = graph
+            if mod.modid in DependencyGraph._ALL_DEPS:
+                raise ValueError(f"modid '{mod.modid}' already has a node")
+
+        # def enable(self):
+        #     for mod in self.mod_list:
+        #         mod.enable()
 
     nodes: List[Node]
 
     def __init__(self, mod: Mod):
-        self.nodes = [DependencyGraph.Node(mod, 0)]
+        self.nodes = [DependencyGraph.Node(mod, self)]
 
 class ModPack:
     directory:  DirectoryReal
     mods:       Dict[str, Mod]
     errors:     List[str]
-    disabled:   List[str]
 
     def __init__(self, directory: DirectoryReal):
         self.directory = directory
         self.mods = {}
         self.errors = []
-        self.disabled = []
 
     def process_jar(self, jar: DirectoryZip) -> bool:
         found = False
@@ -233,33 +236,101 @@ class ModPack:
 
         mod = self.mods[modid]
         print(f'{mod.name} ({modid}) [{mod._version}]:')
+        print(f' -> Dependencies')
+        for dep in mod.dependencies:
+            if not error or (error and not any([range.contains(mod._version) for range in dep.version_reqs])):
+                dep_mod = self.mods.get(dep.modid, None)
+                dep_name = dep_mod.name if dep_mod else dep.modid
+                print(f'   -> name:     {dep_name}')
+                print(f'   -> modid:    {dep.modid}')
+                print(f'   -> versions: {dep.version_reqs}')
+                print()
+        
+        print(f' -> Dependents')
         for dep in mod.dependents:
             if not error or (error and not any([range.contains(mod._version) for range in dep.version_reqs])):
                 dep_mod = self.mods.get(dep.modid, None)
-                dep_name = dep_mod.name if dep_mod else ""
-                print(f' -> name:     {dep_name}')
-                print(f' -> modid:    {dep.modid}')
-                print(f' -> versions: {dep.version_reqs}')
+                dep_name = dep_mod.name if dep_mod else dep.modid
+                print(f'   -> name:     {dep_name}')
+                print(f'   -> modid:    {dep.modid}')
+                print(f'   -> versions: {dep.version_reqs}')
                 print()
 
     def run(self) -> None: ...
 
     def identifyBrokenMods(self, error: str) -> bool:
         graphs: List[DependencyGraph] = []
-        graph_mapping: Dict[str, DependencyGraph] = {}
 
         print(f'total loaded mods: {len(self.mods)}')
 
-        # find each "root" mod (has no dependencies)
+        # find each "leaf" mod (has no dependents)
         for mod in self.mods.values():
-            if len([dep for dep in mod.dependencies if not dep.modid in ['minecraft', 'forge']]) == 0: # if mod has no other dependencies than these:
+            if len(mod.dependents) == 0:
                 graph = DependencyGraph(mod)
                 graphs.append(graph)
-                graph_mapping[mod.modid] = graph
 
-        print(f'total root mods: {len(graphs)}')
+        print(f'total leaf mods: {len(graphs)}')
 
-        # TODO: Construct graphs
+        def process_node(node: DependencyGraph.Node):
+            for mod in node.mod_list:
+                if mod.modid == 'create':
+                    print('found create')
+                # print(mod.modid)
+                for dep in mod.dependents:
+                    # if dep.modid in ['forge', 'minecraft']:
+                    #     continue
+                    # if mod hasn't been processed and mod exists:
+                    if dep.required and not dep.modid in DependencyGraph._ALL_DEPS and dep.modid in self.mods:
+                        dep_mod = self.mods[dep.modid]
+                        # mods with circular dependencies are collapsed into a single node (unlikely but possible)
+                        if mod.modid in [x.modid for x in dep_mod.dependents]:
+                            node.mod_list.append(dep_mod)
+                            DependencyGraph._ALL_DEPS[dep.modid] = node
+                            continue
+                        new_node = DependencyGraph.Node(dep_mod, node.graph)
+                        DependencyGraph._ALL_DEPS[dep.modid] = new_node
+                        node.graph.nodes.append(new_node)
+                        process_node(new_node)
+
+                for dep in mod.dependencies:
+                    # if dep.modid in ['forge', 'minecraft']:
+                    #     continue
+                    # if mod hasn't been processed and mod exists:
+                    if dep.required and not dep.modid in DependencyGraph._ALL_DEPS and dep.modid in self.mods:
+                        dep_mod = self.mods[dep.modid]
+                        # mods with circular dependencies are collapsed into a single node (unlikely but possible)
+                        if mod.modid in [x.modid for x in dep_mod.dependencies]:
+                            node.mod_list.append(dep_mod)
+                            DependencyGraph._ALL_DEPS[dep.modid] = node
+                            continue
+                        new_node = DependencyGraph.Node(dep_mod, node.graph)
+                        DependencyGraph._ALL_DEPS[dep.modid] = new_node
+                        node.graph.nodes.append(new_node)
+                        process_node(new_node)
+
+        for graph in graphs:
+            process_node(graph.nodes[0])
+
+        graph_set: Set[DependencyGraph] = set()
+        for node in DependencyGraph._ALL_DEPS.values():
+            graph_set.add(node.graph)
+        print(f'total separate graphs: {len(graph_set)}')
+
+        for i, graph in enumerate(graph_set):
+            print('==================================')
+            print(f'Graph {i}:')
+            for node in graph.nodes:
+                for mod in node.mod_list:
+                    print(f" -> '{mod.modid}'")
+            print()
+
+        missing_count = 0
+        for modid in self.mods.keys():
+            if not modid in DependencyGraph._ALL_DEPS.keys():
+                missing_count += 1
+                print(f'Missing graph for mod "{self.mods[modid].name}" ({modid})')
+        print(f'Missing graphs for {missing_count} mods')
+
 
         assert self.directory.has("logs"), "'logs' directory not found! Please run profile at least once!"
         logs = DirectoryReal(self.directory, "logs")
@@ -267,9 +338,8 @@ class ModPack:
         error_files = ['latest.log', 'debug.log', 'latest_stdout.log']
         search_filename = ''
         for potential in error_files:
-            if logs.has(potential):
-                if error in FileReal(logs, potential).read().decode('ascii', errors="ignore"):
-                    search_filename = potential
+            if logs.has(potential) and error in FileReal(logs, potential).read().decode('ascii', errors="ignore"):
+                search_filename = potential
 
         if search_filename:
             print(f'Scanning "{search_filename}"')
