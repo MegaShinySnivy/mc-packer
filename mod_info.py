@@ -125,8 +125,8 @@ class Mod:
         return instance
 
 class DependencyGraph:
-    _ALL_GRAPHS:    List['DependencyGraph'] = []
-    _ALL_DEPS:      Dict[str, 'Node'] = {}
+    _ALL_GRAPHS:    Dict[str, 'DependencyGraph'] = {}
+    _ALL_NODES:     Dict[str, 'Node'] = {}
 
     class Node:
         mod_list:   List[Mod]
@@ -135,7 +135,7 @@ class DependencyGraph:
         def __init__(self, mod: Mod, graph: 'DependencyGraph'):
             self.mod_list = [mod]
             self.graph = graph
-            if mod.modid in DependencyGraph._ALL_DEPS:
+            if mod.modid in DependencyGraph._ALL_NODES:
                 raise ValueError(f"modid '{mod.modid}' already has a node")
 
         # def enable(self):
@@ -281,44 +281,50 @@ class ModPack:
                     if dep.modid in ['forge', 'minecraft']:
                         continue
                     # if mod hasn't been processed and mod exists:
-                    if dep.required and not dep.modid in DependencyGraph._ALL_DEPS and dep.modid in self.mods:
+                    if dep.required and not dep.modid in DependencyGraph._ALL_NODES and dep.modid in self.mods:
                         dep_mod = self.mods[dep.modid]
                         # mods with circular dependencies are collapsed into a single node (unlikely but possible)
                         if mod.modid in [x.modid for x in dep_mod.dependents]:
                             node.mod_list.append(dep_mod)
-                            DependencyGraph._ALL_DEPS[dep.modid] = node
+                            DependencyGraph._ALL_NODES[dep.modid] = node
                             continue
                         new_node = DependencyGraph.Node(dep_mod, node.graph)
-                        DependencyGraph._ALL_DEPS[dep.modid] = new_node
+                        DependencyGraph._ALL_NODES[dep.modid] = new_node
                         node.graph.nodes.append(new_node)
                         process_node(new_node)
-                    elif dep.required and dep.modid in self.mods and DependencyGraph._ALL_DEPS[dep.modid] is not node:
-                        node.graph = DependencyGraph._ALL_DEPS[dep.modid].graph
+                    elif dep.required and dep.modid in self.mods and DependencyGraph._ALL_NODES[dep.modid] is not node:
+                        old_graph = node.graph
+                        node.graph = DependencyGraph._ALL_NODES[dep.modid].graph
+                        for og_node in old_graph.nodes:
+                            og_node.graph = node.graph
 
                 for dep in mod.dependencies:
                     if dep.modid in ['forge', 'minecraft']:
                         continue
                     # if mod hasn't been processed and mod exists:
-                    if dep.required and not dep.modid in DependencyGraph._ALL_DEPS and dep.modid in self.mods:
+                    if dep.required and not dep.modid in DependencyGraph._ALL_NODES and dep.modid in self.mods:
                         dep_mod = self.mods[dep.modid]
                         # mods with circular dependencies are collapsed into a single node (unlikely but possible)
                         if mod.modid in [x.modid for x in dep_mod.dependencies]:
                             node.mod_list.append(dep_mod)
-                            DependencyGraph._ALL_DEPS[dep.modid] = node
+                            DependencyGraph._ALL_NODES[dep.modid] = node
                             continue
                         new_node = DependencyGraph.Node(dep_mod, node.graph)
-                        DependencyGraph._ALL_DEPS[dep.modid] = new_node
+                        DependencyGraph._ALL_NODES[dep.modid] = new_node
                         node.graph.nodes.append(new_node)
                         process_node(new_node)
-                    elif dep.required and dep.modid in self.mods and DependencyGraph._ALL_DEPS[dep.modid] is not node:
-                        node.graph = DependencyGraph._ALL_DEPS[dep.modid].graph
+                    elif dep.required and dep.modid in self.mods and DependencyGraph._ALL_NODES[dep.modid] is not node:
+                        old_graph = node.graph
+                        node.graph = DependencyGraph._ALL_NODES[dep.modid].graph
+                        for og_node in old_graph.nodes:
+                            og_node.graph = node.graph
 
         for graph in graphs:
+            DependencyGraph._ALL_NODES[graph.nodes[0].mod_list[0].modid] = graph.nodes[0]
             process_node(graph.nodes[0])
-            DependencyGraph._ALL_DEPS[graph.nodes[0].mod_list[0].modid] = graph.nodes[0]
 
         graph_set: List[DependencyGraph] = []
-        for node in DependencyGraph._ALL_DEPS.values():
+        for node in DependencyGraph._ALL_NODES.values():
             if not node.graph in graph_set:
                 graph_set.append(node.graph)
         print(f'total separate graphs: {len(graph_set)}')
@@ -333,7 +339,7 @@ class ModPack:
 
         missing_count = 0
         for modid in self.mods.keys():
-            if not modid in DependencyGraph._ALL_DEPS.keys():
+            if not modid in DependencyGraph._ALL_NODES.keys():
                 missing_count += 1
                 print(f'Missing graph for mod "{self.mods[modid].name}" ({modid})')
         print(f'Missing graphs for {missing_count} mods')
