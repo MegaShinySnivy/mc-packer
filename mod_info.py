@@ -145,6 +145,20 @@ class DependencyGraph:
                 DependencyGraph._ALL_NODES[mod.modid] = self
             other.mod_set = set()
 
+        @property
+        def dependencies(self) -> List[ModDependency]:
+            deps = []
+            for mod in self.mod_set:
+                deps.extend(mod.dependencies)
+            return deps
+
+        @property
+        def dependents(self) -> List[ModDependency]:
+            deps = []
+            for mod in self.mod_set:
+                deps.extend(mod.dependents)
+            return deps
+
         # def enable(self):
         #     for mod in self.mod_list:
         #         mod.enable()
@@ -252,16 +266,17 @@ class ModPack:
 
         mod = self.mods[modid]
         print(f'{mod.name} ({modid}) [{mod._version}]:')
+        print(f' -> File: "{mod.filename}"\n')
         print(f' -> Dependencies')
         for dep in mod.dependencies:
             if not error or (error and not any([range.contains(mod._version) for range in dep.version_reqs])):
                 dep_mod = self.mods.get(dep.modid, None)
                 dep_name = dep_mod.name if dep_mod else dep.modid
-                print(f'   -> name:     {dep_name}')
-                print(f'   -> modid:    {dep.modid}')
-                print(f'   -> required: {"yes" if dep.required else "no"}')
-                print(f'   -> installed: {"yes" if self.mods.get(dep.modid, None) is not None else "no"}')
-                print(f'   -> versions: {dep.version_reqs}')
+                print(f'   -> name:      {dep_name}')
+                print(f'   -> modid:     {dep.modid}')
+                print(f'   -> required:  {"yes" if dep.required else "no"}')
+                print(f'   -> installed: {"yes" if self.mods.get(dep.modid, None) else "no"}')
+                print(f'   -> versions:  {dep.version_reqs}')
                 print()
         
         print(f' -> Dependents')
@@ -291,58 +306,24 @@ class ModPack:
 
         # TODO: Merge circular node paths into a single node each
 
-        # def process_node(node: DependencyGraph.Node):
-        #     for mod in node.mod_set:
-        #         if mod.modid in ['forge', 'minecraft']:
-        #             continue
-                
-        #         for dep in mod.dependents:
-        #             if dep.modid in ['forge', 'minecraft']:
-        #                 continue
-        #             if dep.required:
-        #                 dep_mod = self.mods[dep.modid]
-        #                 # if they are circular dependents and not already merged:
-        #                 if mod.modid in [x.modid for x in dep_mod.dependents] and node is not DependencyGraph._ALL_NODES[dep.modid]:
-        #                     node.merge(DependencyGraph._ALL_NODES[dep.modid])
-        #                     continue
-        #                 if node.graph is not DependencyGraph._ALL_GRAPHS[dep.modid]:
-        #                     node.graph.merge(DependencyGraph._ALL_GRAPHS[dep.modid])
-        #                 process_node(DependencyGraph._ALL_NODES[dep.modid])
-
-        #         for dep in mod.dependencies:
-        #             if dep.modid in ['forge', 'minecraft']:
-        #                 continue
-        #             if dep.required:
-        #                 dep_mod = self.mods[dep.modid]
-        #                 # if they are circular dependents and not already merged:
-        #                 if mod.modid in [x.modid for x in dep_mod.dependencies] and node is not DependencyGraph._ALL_NODES[dep.modid]:
-        #                     node.merge(DependencyGraph._ALL_NODES[dep.modid])
-        #                     continue
-        #                 if node.graph is not DependencyGraph._ALL_GRAPHS[dep.modid]:
-        #                     node.graph.merge(DependencyGraph._ALL_GRAPHS[dep.modid])
-        #                 process_node(DependencyGraph._ALL_NODES[dep.modid])
-
         def process_graph(graph: DependencyGraph):
             for node in graph.nodes:
-                for mod in node.mod_set:
-                    if mod.modid in ['minecraft', 'forge']:
+                for dep in node.dependents:
+                    if dep.modid in ['minecraft', 'forge']:
                         continue
-                    for dep in mod.dependents:
-                        if dep.modid in ['minecraft', 'forge']:
-                            continue
-                        if not dep.required and not dep.modid in self.mods:
-                            continue
-                        if DependencyGraph._ALL_GRAPHS[mod.modid] is not DependencyGraph._ALL_GRAPHS[dep.modid]:
-                            DependencyGraph._ALL_GRAPHS[mod.modid].merge(DependencyGraph._ALL_GRAPHS[dep.modid])
-                            process_graph(DependencyGraph._ALL_GRAPHS[mod.modid])
-                    for dep in mod.dependencies:
-                        if dep.modid in ['minecraft', 'forge']:
-                            continue
-                        if not dep.required and not dep.modid in self.mods:
-                            continue
-                        if DependencyGraph._ALL_GRAPHS[mod.modid] is not DependencyGraph._ALL_GRAPHS[dep.modid]:
-                            DependencyGraph._ALL_GRAPHS[mod.modid].merge(DependencyGraph._ALL_GRAPHS[dep.modid])
-                            process_graph(DependencyGraph._ALL_GRAPHS[mod.modid])
+                    if not dep.required and not dep.modid in self.mods:
+                        continue
+                    if DependencyGraph._ALL_GRAPHS[mod.modid] is not DependencyGraph._ALL_GRAPHS[dep.modid]:
+                        DependencyGraph._ALL_GRAPHS[mod.modid].merge(DependencyGraph._ALL_GRAPHS[dep.modid])
+                        process_graph(DependencyGraph._ALL_GRAPHS[dep.modid])
+                for dep in node.dependencies:
+                    if dep.modid in ['minecraft', 'forge']:
+                        continue
+                    if not dep.required and not dep.modid in self.mods:
+                        continue
+                    if DependencyGraph._ALL_GRAPHS[mod.modid] is not DependencyGraph._ALL_GRAPHS[dep.modid]:
+                        DependencyGraph._ALL_GRAPHS[mod.modid].merge(DependencyGraph._ALL_GRAPHS[dep.modid])
+                        process_graph(DependencyGraph._ALL_GRAPHS[dep.modid])
 
         for mod in self.mods.values():
             if mod.modid in ['minecraft', 'forge']:
