@@ -3,6 +3,7 @@ from attrs import define
 
 from typing import List, Union, Optional, Generator, cast
 from zipfile import ZipFile, Path
+from abc import ABC, abstractmethod
 import hashlib
 import os
 
@@ -10,36 +11,24 @@ import os
 BUF_SIZE = 65536 # 64 kB
 
 @define
-class FileBase:
+class FileBase(ABC):
     parent: Optional['DirectoryBase']
     name: str
 
-    def __init__(self): raise Exception("Abstract class instantiated")
+    @abstractmethod
+    def __len__(self) -> int: ...
 
-    def __len__(self): ...
+    @abstractmethod
+    def _read(self, buffer_size: int) -> Generator[bytes, None, None]: ...
 
-    def _read(self, buffer_size: int): ... # abstract function
+    @abstractmethod
+    def write(self, content: bytes) -> None: ...
 
-    def read(self) -> bytes:
-        return b''.join(self._read(BUF_SIZE))
+    @abstractmethod
+    def rename(self, new_name: str) -> None: ...
 
-    def read_large(self, buffer_size: int = 0) -> Generator[bytes, None, None]:
-        if buffer_size <= 0:
-            buffer_size = BUF_SIZE
-        while data := self._read(buffer_size):
-            yield data
-
-    def write(self, content: bytes): ...
-
-    def rename(self, new_name: str): ...
-
-    def watch(self): ...
-
-    def hash(self) -> str:
-        md5 = hashlib.md5(usedforsecurity=False)
-        for chunk in self.read_large():
-            md5.update(chunk)
-        return md5.hexdigest()
+    # @abstractmethod
+    # def watch(self): ...
 
     @property
     def full_path(self) -> str:
@@ -48,16 +37,35 @@ class FileBase:
         else:
             return self.name
 
+
+    def read(self) -> bytes:
+        return b''.join(self._read(BUF_SIZE))
+
+    def read_large(self, buffer_size: int = 0) -> Generator[bytes, None, None]:
+        if buffer_size <= 0:
+            buffer_size = BUF_SIZE
+        while data := self._read(buffer_size):
+            yield cast(bytes, data)
+
+    def hash(self) -> str:
+        md5 = hashlib.md5(usedforsecurity=False)
+        for chunk in self.read_large():
+            md5.update(chunk)
+        return md5.hexdigest()
+
 @define
-class DirectoryBase:
+class DirectoryBase(ABC):
     parent: Optional['DirectoryBase']
     name: str
 
-    def __init__(self): raise Exception("Abstract class instantiated")
+    @abstractmethod
+    def list(self) -> List[Union[FileBase, 'DirectoryBase']]: ...
 
-    def list(self): ...
-    def get(self, item: str): ...
-    def has(self, item: str): ...
+    @abstractmethod
+    def get(self, item: str) -> Union[FileBase, 'DirectoryBase']: ...
+
+    @abstractmethod
+    def has(self, item: str) -> bool: ...
 
     def __getitem__(self, key: str) -> Union[FileBase, 'DirectoryBase']:
         return self.get(key)
@@ -76,7 +84,7 @@ class FileReal(FileBase):
 
     def _read(self, buffer_size: int):
         self.parent = cast(DirectoryBase, self.parent)
-        if self.parent.has(self.name) or not os.path.isfile(self.full_path):
+        if self.parent.has(self.name) or os.path.isfile(self.full_path):
             with open(self.full_path, 'rb') as file:
                 while True:
                     data = file.read(buffer_size)
@@ -85,6 +93,16 @@ class FileReal(FileBase):
                     yield data
         else:
             raise FileNotFoundError(f"Could not find {self.name} in {self.parent.full_path} as {self.full_path}")
+        
+    def rename(self, new_name: str) -> None:
+        os.rename(self.full_path, os.path.join(cast(DirectoryBase, self.parent).full_path, new_name))
+        self.name = new_name
+
+    def write(self, content: bytes) -> None:
+        self.parent = cast(DirectoryBase, self.parent)
+        if self.parent.has(self.name) or os.path.isfile(self.full_path):
+            with open(self.full_path, 'wb') as file:
+                file.write(content)
 
 @define
 class DirectoryReal(DirectoryBase):
@@ -141,9 +159,14 @@ class FileZip(FileBase):
 
     def _read(self, buffer_size: int) -> Generator[bytes, None, None]:
         zip_file = cast(ZipFile, self.parent._zip)
-        with zip_file.open(self.name, 'r') as file:  # open a file inside the zip
+        with zip_file.open(self.name, 'r') as file:
             while chunk := file.read(buffer_size):
                 yield chunk
     
-    def write(self, content: bytes) -> None: ...
+    def write(self, content: bytes) -> None:
+        zip_file = cast(ZipFile, self.parent._zip)
+        with zip_file.open(self.name, 'wb') as file:
+            file.write(content)
 
+    def rename(self, new_name: str) -> None:
+        raise AttributeError("renaming is not supported for FileZip")
