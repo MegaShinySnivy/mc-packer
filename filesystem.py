@@ -8,7 +8,8 @@ import hashlib
 import os
 
 
-BUF_SIZE = 65536 # 64 kB
+BUF_SIZE = 65536  # 64 kB
+
 
 @define
 class FileBase(ABC):
@@ -16,16 +17,20 @@ class FileBase(ABC):
     name: str
 
     @abstractmethod
-    def __len__(self) -> int: ...
+    def __len__(self) -> int:
+        ...
 
     @abstractmethod
-    def _read(self, buffer_size: int) -> Generator[bytes, None, None]: ...
+    def _read(self, buffer_size: int) -> Generator[bytes, None, None]:
+        ...
 
     @abstractmethod
-    def write(self, content: bytes) -> None: ...
+    def write(self, content: bytes) -> None:
+        ...
 
     @abstractmethod
-    def rename(self, new_name: str) -> None: ...
+    def rename(self, new_name: str) -> None:
+        ...
 
     # @abstractmethod
     # def watch(self): ...
@@ -36,7 +41,6 @@ class FileBase(ABC):
             return os.path.join(self.parent.full_path, self.name)
         else:
             return self.name
-
 
     def read(self) -> bytes:
         return b''.join(self._read(BUF_SIZE))
@@ -53,19 +57,23 @@ class FileBase(ABC):
             md5.update(chunk)
         return md5.hexdigest()
 
+
 @define
 class DirectoryBase(ABC):
     parent: Optional['DirectoryBase']
     name: str
 
     @abstractmethod
-    def list(self) -> List[Union[FileBase, 'DirectoryBase']]: ...
+    def list(self) -> List[Union[FileBase, 'DirectoryBase']]:
+        ...
 
     @abstractmethod
-    def get(self, item: str) -> Union[FileBase, 'DirectoryBase']: ...
+    def get(self, item: str) -> Union[FileBase, 'DirectoryBase']:
+        ...
 
     @abstractmethod
-    def has(self, item: str) -> bool: ...
+    def has(self, item: str) -> bool:
+        ...
 
     def __getitem__(self, key: str) -> Union[FileBase, 'DirectoryBase']:
         return self.get(key)
@@ -76,6 +84,7 @@ class DirectoryBase(ABC):
             return os.path.join(self.parent.full_path, self.name)
         else:
             return self.name
+
 
 @define
 class FileReal(FileBase):
@@ -92,10 +101,15 @@ class FileReal(FileBase):
                         break
                     yield data
         else:
-            raise FileNotFoundError(f"Could not find {self.name} in {self.parent.full_path} as {self.full_path}")
-        
+            raise FileNotFoundError(
+                f"Could not find {self.name} in {self.parent.full_path} "
+                f"as {self.full_path}"
+            )
+
     def rename(self, new_name: str) -> None:
-        os.rename(self.full_path, os.path.join(cast(DirectoryBase, self.parent).full_path, new_name))
+        parent_dir = cast(DirectoryBase, self.parent).full_path
+        new_path = os.path.join(parent_dir, new_name)
+        os.rename(self.full_path, new_path)
         self.name = new_name
 
     def write(self, content: bytes) -> None:
@@ -103,6 +117,7 @@ class FileReal(FileBase):
         if self.parent.has(self.name) or os.path.isfile(self.full_path):
             with open(self.full_path, 'wb') as file:
                 file.write(content)
+
 
 @define
 class DirectoryReal(DirectoryBase):
@@ -113,7 +128,8 @@ class DirectoryReal(DirectoryBase):
             if os.path.isfile(os.path.join(self.full_path, item)):
                 children.append(FileReal(self, item))
             elif os.path.isdir(os.path.join(self.full_path, item)):
-                children.append(DirectoryReal(self, os.path.join(self.full_path, item)))
+                item_path = os.path.join(self.full_path, item)
+                children.append(DirectoryReal(self, item_path))
 
         return children
 
@@ -122,6 +138,7 @@ class DirectoryReal(DirectoryBase):
 
     def has(self, item: str) -> bool:
         return os.path.exists(os.path.join(self.full_path, item))
+
 
 @define
 class DirectoryZip(DirectoryBase):
@@ -150,6 +167,7 @@ class DirectoryZip(DirectoryBase):
         path = Path(self._zip, item)
         return path.is_file() or path.is_dir()
 
+
 @define
 class FileZip(FileBase):
     parent: DirectoryZip
@@ -162,7 +180,7 @@ class FileZip(FileBase):
         with zip_file.open(self.name, 'r') as file:
             while chunk := file.read(buffer_size):
                 yield chunk
-    
+
     def write(self, content: bytes) -> None:
         zip_file = cast(ZipFile, self.parent._zip)
         with zip_file.open(self.name, 'wb') as file:

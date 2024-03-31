@@ -1,5 +1,5 @@
 
-from pygtail import Pygtail # type: ignore
+from pygtail import Pygtail  # type: ignore
 from attrs import define
 from tqdm import tqdm
 import toml
@@ -14,7 +14,9 @@ from filesystem import FileBase, FileReal, DirectoryZip, DirectoryReal, FileZip
 from version import VersionRange, Version, BadVersionString
 
 
-class DependencyFailure(Exception): ...
+class DependencyFailure(Exception):
+    ...
+
 
 class ModDependency:
     modid: str
@@ -25,7 +27,7 @@ class ModDependency:
         self.modid = modid
         self.required = required
         self.version_reqs = VersionRange.fromString(version_range)
-        
+
     def __str__(self) -> str:
         return ','.join([str(req) for req in self.version_reqs])
 
@@ -37,11 +39,18 @@ class ModDependency:
                 return True
         return False
 
+
 MANIFEST_MAPPING: Dict[str, Union[str, List[str]]] = {
-    'file.jarVersion': ['Implementation-Version', 'Specification-Version', 'Manifest-Version'],
+    'file.jarVersion': [
+        'Implementation-Version',
+        'Specification-Version',
+        'Manifest-Version'
+    ],
+    # temp solution until I learn where to actually get these from
     'forge_version_range': '*',
-    'minecraft_version_range': '*'
+    'minecraft_version_range': '*',
 }
+
 
 class Mod:
     filename:       str
@@ -52,19 +61,46 @@ class Mod:
     dependents:     List[ModDependency]
     errors:         List[str]
 
+    pack:           'ModPack'
     manifest:       Dict[str, str]
     toml_data:      Dict[str, Any]
     parent:         Optional['Mod']
 
-    def __init__(self):
+    def __init__(self, pack: 'ModPack'):
         self.dependencies = []
         self.dependents = []
         self.errors = []
         self.manifest = {}
+        self.pack = pack
+
+    def enable(self) -> None:
+        if self.filename.endswith('.jar.disabled'):
+            new_name = self.filename.removesuffix('.disabled')
+            FileReal(self.pack.directory, self.filename).rename(new_name)
+            self.filename = new_name
+        if self.filename and self.filename != '[no file]':
+            for dep in self.dependencies:
+                if dep.modid in self.pack.mods:
+                    self.pack.mods[dep.modid].enable()
+
+    def disable(self) -> None:
+        if self.filename.endswith('.jar'):
+            new_name = self.filename + ".disabled"
+            FileReal(self.pack.directory, self.filename).rename(new_name)
+            self.filename = new_name
+        if self.filename and self.filename != '[no file]':
+            for dep in self.dependents:
+                if dep.modid in self.pack.mods:
+                    self.pack.mods[dep.modid].enable()
 
     @classmethod
-    def load(cls, filename: str, toml_data: Dict[str, Any], manifest: str) -> 'Mod':
-        instance = cls()
+    def load(cls,
+                pack: 'ModPack',
+                filename: str,
+                toml_data: Dict[str, Any],
+                manifest: str
+            ) -> 'Mod':
+        instance = cls(pack)
         instance.filename = filename
 
         if manifest != "":
@@ -78,10 +114,11 @@ class Mod:
                     instance.manifest[parts[0].strip()] = parts[1].strip()
 
         def processExternalField(field_raw: str) -> str:
-            extern = re.match(r'\${([^}]+)}', field_raw) # checks if string is an external reference `${<var_name>}`
+            # checks if string is an external reference `${<var_name>}`
+            extern = re.match(r'\${([^}]+)}', field_raw)
             if not extern:
                 return field_raw
-            
+
             field = cast(str, extern.groups(1)[0])
             map = MANIFEST_MAPPING.get(field, None)
 
@@ -94,12 +131,14 @@ class Mod:
                     result = instance.manifest.get(key, "")
                     if result:
                         break
-                
+
                 if result == "":
-                    raise ValueError(f"failed to process field value {field_raw}")
+                    raise ValueError(
+                        f"failed to process field value {field_raw}"
+                    )
                 return result
-            
-            elif map == None:
+
+            elif map is None:
                 return field_raw
             else:
                 raise ValueError(f"failed to process field value {field_raw}")
@@ -108,21 +147,37 @@ class Mod:
             mod = toml_data['mods'][0]
 
             instance.modid = processExternalField(mod['modId'])
-            instance._version = Version.fromString(processExternalField(mod['version']))
+            instance._version = Version.fromString(
+                processExternalField(mod['version'])
+            )
             instance.name = processExternalField(mod["displayName"])
             instance.toml_data = toml_data
 
-            if "dependencies" in toml_data and len(toml_data["dependencies"]) > 0:
+            toml_deps_len = len(toml_data["dependencies"])
+            if "dependencies" in toml_data and toml_deps_len > 0:
                 deps = toml_data["dependencies"]
                 if instance.modid in deps and len(deps[instance.modid]) > 0:
                     for dependency in deps[instance.modid]:
                         try:
-                            version_range = processExternalField(dependency['versionRange'])
-                            instance.dependencies.append(ModDependency(dependency["modId"], dependency['mandatory'], version_range))
+                            version_range = processExternalField(
+                                dependency['versionRange']
+                            )
+                            instance.dependencies.append(
+                                ModDependency(
+                                    dependency["modId"],
+                                    dependency['mandatory'],
+                                    version_range
+                                )
+                            )
                         except BadVersionString as e:
-                            instance.errors.append(f"'{instance.name}' dependency '{dependency['modId']}' has invalid version range '{dependency['versionRange']}'")
+                            instance.errors.append(
+                                f"'{instance.name}' dependency "
+                                f"'{dependency['modId']}' has invalid "
+                                f"version range '{dependency['versionRange']}'"
+                            )
 
         return instance
+
 
 class DependencyGraph:
     _ALL_GRAPHS:    Dict[str, 'DependencyGraph'] = {}
@@ -137,7 +192,7 @@ class DependencyGraph:
             self.graph = graph
             if mod.modid in DependencyGraph._ALL_NODES:
                 raise ValueError(f"modid '{mod.modid}' already has a node")
-            
+
         def merge(self, other: 'DependencyGraph.Node') -> None:
             self.mod_set.union(other.mod_set)
             for mod in other.mod_set:
@@ -159,10 +214,6 @@ class DependencyGraph:
                 deps.extend(mod.dependents)
             return deps
 
-        # def enable(self):
-        #     for mod in self.mod_list:
-        #         mod.enable()
-
     nodes: List[Node]
 
     def __init__(self, mod: Mod):
@@ -177,6 +228,17 @@ class DependencyGraph:
             self.nodes.append(node)
         other.nodes = []
 
+    def disable_all(self) -> None:
+        for node in self.nodes:
+            for mod in node.mod_set:
+                mod.disable()
+
+    def enable_all(self) -> None:
+        for node in self.nodes:
+            for mod in node.mod_set:
+                mod.enable()
+
+
 class ModPack:
     directory:  DirectoryReal
     mods:       Dict[str, Mod]
@@ -189,38 +251,53 @@ class ModPack:
 
     def process_jar(self, jar: DirectoryZip) -> bool:
         found = False
-        for item in [x for x in jar.list() if x.name.startswith('META-INF/jarjar/') and x.name.endswith('.jar')]:
-            with io.BytesIO(cast(ZipFile, jar._zip).read(item.name)) as nested_jar_bytes:
+
+        for item in [x for x in jar.list() if x.name.endswith('.jar')]:
+            with io.BytesIO(
+                        cast(ZipFile, jar._zip).read(item.name)
+                    ) as nested_jar_bytes:
                 with ZipFile(nested_jar_bytes, 'r') as nested_jar:
                     _dir = DirectoryZip(jar, item.name, nested_jar)
-                    found = found or self.process_jar(_dir) # yay recursion
-                    
+                    found = found or self.process_jar(_dir)  # yay recursion
+
         if jar.has("META-INF/mods.toml"):
             found = True
-            toml_data = toml.loads(FileZip("META-INF/mods.toml", jar).read().decode())
+            toml_data = toml.loads(
+                FileZip("META-INF/mods.toml", jar).read().decode()
+            )
             manifest = ""
             if jar.has("META-INF/MANIFEST.MF"):
-                manifest = FileZip("META-INF/MANIFEST.MF", jar).read().decode()
+                manifest = FileZip(
+                    "META-INF/MANIFEST.MF",
+                    jar
+                ).read().decode()
 
-            mod = Mod.load(jar.full_path, toml_data, manifest)
-            if hasattr(mod ,'modid'):
+            mod = Mod.load(self, jar.full_path, toml_data, manifest)
+            if hasattr(mod, 'modid'):
                 self.mods[mod.modid] = mod
         return found
 
     def load(self) -> bool:
         mod_dir = DirectoryReal(self.directory, 'mods')
-        for file in tqdm(mod_dir.list()):
         # for file in self.directory.list():
+        for file in tqdm(mod_dir.list()):
             if not issubclass(type(file), FileBase):
                 continue
             file = cast(FileBase, file)
             if file.name.endswith('.disabled'):
                 continue
 
-            with ZipFile(os.path.join(mod_dir.full_path, file.name), 'r') as jar:
-                result = self.process_jar(DirectoryZip(mod_dir, file.name, jar))
+            with ZipFile(
+                        os.path.join(mod_dir.full_path, file.name),
+                        'r'
+                    ) as jar:
+                result = self.process_jar(
+                    DirectoryZip(mod_dir, file.name, jar)
+                )
                 if not result:
-                    self.errors.append(f"Failed to locate mod in jar '{file.name}'")
+                    self.errors.append(
+                        f"Failed to locate mod in jar '{file.name}'"
+                    )
                     # return False
         return True
 
@@ -230,15 +307,20 @@ class ModPack:
                 if dep.modid in self.mods:
                     dependency = self.mods[dep.modid]
                     if not dep.validateMod(dependency):
-                        dependency.errors.append(f"'{mod.modid}' requires '{dep.version_reqs}'")
+                        dependency.errors.append(
+                            f"'{mod.modid}' requires '{dep.version_reqs}'"
+                        )
 
                     rdep_mod = ModDependency(mod.modid, False, '*')
                     rdep_mod.version_reqs = dep.version_reqs
                     dependency.dependents.append(rdep_mod)
 
                 else:
-                    if dep.required and not dep.modid in []:
-                        mod.errors.append(f"Could not find mod '{dep.modid}'! requirements: {dep.version_reqs}")
+                    if dep.required and dep.modid not in []:
+                        mod.errors.append(
+                            f"Could not find mod '{dep.modid}'! "
+                            f"requirements: {dep.version_reqs}"
+                        )
 
         err_num = 0
         for mod in self.mods.values():
@@ -257,9 +339,9 @@ class ModPack:
                 print(f' -> {error}')
 
         return err_num == 0
-    
+
     def why_depends(self, modid: str, error: bool) -> None:
-        if not modid in self.mods:
+        if modid not in self.mods:
             print('==================================')
             print(f'why-depends: modid "{modid}" not found!\n')
             return
@@ -269,29 +351,38 @@ class ModPack:
         print(f' -> File: "{mod.filename}"\n')
         print(f' -> Dependencies')
         for dep in mod.dependencies:
-            if not error or (error and not any([range.contains(mod._version) for range in dep.version_reqs])):
+            vers_reqs_met = any(
+                [range.contains(mod._version) for range in dep.version_reqs]
+            )
+            if not error or (error and not vers_reqs_met):
                 dep_mod = self.mods.get(dep.modid, None)
                 dep_name = dep_mod.name if dep_mod else dep.modid
+                dep_installed = dep.modid in self.mods
                 print(f'   -> name:      {dep_name}')
                 print(f'   -> modid:     {dep.modid}')
                 print(f'   -> required:  {"yes" if dep.required else "no"}')
-                print(f'   -> installed: {"yes" if self.mods.get(dep.modid, None) else "no"}')
+                print(f'   -> installed: {"yes" if dep_installed else "no"}')
                 print(f'   -> versions:  {dep.version_reqs}')
                 print()
-        
+
         print(f' -> Dependents')
         for dep in mod.dependents:
-            if not error or (error and not any([range.contains(mod._version) for range in dep.version_reqs])):
+            vers_reqs_met = any(
+                [range.contains(mod._version) for range in dep.version_reqs]
+            )
+            if not error or (error and not vers_reqs_met):
                 dep_mod = self.mods.get(dep.modid, None)
                 dep_name = dep_mod.name if dep_mod else dep.modid
-                print(f'   -> name:     {dep_name}')
-                print(f'   -> modid:    {dep.modid}')
+                dep_installed = dep.modid in self.mods
+                print(f'   -> name:      {dep_name}')
+                print(f'   -> modid:     {dep.modid}')
                 # print(f'   -> required: {dep.required}')
-                print(f'   -> installed: {"yes" if self.mods.get(dep.modid, None) is not None else "no"}')
-                print(f'   -> versions: {dep.version_reqs}')
+                print(f'   -> installed: {"yes" if dep_installed else "no"}')
+                print(f'   -> versions:  {dep.version_reqs}')
                 print()
 
-    def run(self) -> None: ...
+    def run(self) -> bool:
+        return False
 
     def identifyBrokenMods(self, error: str) -> bool:
         graphs: List[DependencyGraph] = []
@@ -309,21 +400,25 @@ class ModPack:
         def process_graph(graph: DependencyGraph):
             for node in graph.nodes:
                 for dep in node.dependents:
-                    if dep.modid in ['minecraft', 'forge']:
+                    invalid_modid = dep.modid in ['minecraft', 'forge']
+                    not_installed = dep.modid not in self.mods
+                    if invalid_modid or (not dep.required and not_installed):
                         continue
-                    if not dep.required and not dep.modid in self.mods:
-                        continue
-                    if DependencyGraph._ALL_GRAPHS[mod.modid] is not DependencyGraph._ALL_GRAPHS[dep.modid]:
-                        DependencyGraph._ALL_GRAPHS[mod.modid].merge(DependencyGraph._ALL_GRAPHS[dep.modid])
-                        process_graph(DependencyGraph._ALL_GRAPHS[dep.modid])
+                    mod_graph = DependencyGraph._ALL_GRAPHS[mod.modid]
+                    dep_graph = DependencyGraph._ALL_GRAPHS[dep.modid]
+                    if mod_graph is not dep_graph:
+                        mod_graph.merge(dep_graph)
+                        process_graph(dep_graph)
                 for dep in node.dependencies:
-                    if dep.modid in ['minecraft', 'forge']:
+                    invalid_modid = dep.modid in ['minecraft', 'forge']
+                    not_installed = dep.modid not in self.mods
+                    if invalid_modid or (not dep.required and not_installed):
                         continue
-                    if not dep.required and not dep.modid in self.mods:
-                        continue
-                    if DependencyGraph._ALL_GRAPHS[mod.modid] is not DependencyGraph._ALL_GRAPHS[dep.modid]:
-                        DependencyGraph._ALL_GRAPHS[mod.modid].merge(DependencyGraph._ALL_GRAPHS[dep.modid])
-                        process_graph(DependencyGraph._ALL_GRAPHS[dep.modid])
+                    mod_graph = DependencyGraph._ALL_GRAPHS[mod.modid]
+                    dep_graph = DependencyGraph._ALL_GRAPHS[dep.modid]
+                    if mod_graph is not dep_graph:
+                        mod_graph.merge(dep_graph)
+                        process_graph(dep_graph)
 
         for mod in self.mods.values():
             if mod.modid in ['minecraft', 'forge']:
@@ -332,12 +427,18 @@ class ModPack:
 
         graph_list: List[DependencyGraph] = []
         for node in DependencyGraph._ALL_NODES.values():
-            if not node.graph in graph_list:
+            if node.graph not in graph_list:
                 graph_list.append(node.graph)
+        # sort by number of mods in graph
+        graph_list = sorted(
+            graph_list,
+            key=(lambda x: sum([len(y.mod_set) for y in x.nodes]))
+        )
 
         for i, graph in enumerate(graph_list):
             print('==================================')
-            print(f'Graph {i}:')
+            mod_count = sum([len(y.mod_set) for y in graph.nodes])
+            print(f'Graph {i} ({mod_count} mods):')
             for node in graph.nodes:
                 for mod in node.mod_set:
                     print(f" -> '{mod.modid}'")
@@ -348,31 +449,82 @@ class ModPack:
 
         missing_count = 0
         for modid in self.mods.keys():
-            if not modid in DependencyGraph._ALL_NODES.keys() and not modid in ['minecraft', 'forge']:
+            invalid_modid = modid in ['minecraft', 'forge']
+            mod_installed = modid in DependencyGraph._ALL_NODES.keys()
+            if not mod_installed and not invalid_modid:
                 missing_count += 1
-                print(f'Missing graph for mod "{self.mods[modid].name}" ({modid})')
+                mod_name = self.mods[modid].name
+                print(f'Missing graph for mod "{mod_name}" ({modid})')
         print(f'Missing graphs for {missing_count} mods')
 
-
-        assert self.directory.has("logs"), "'logs' directory not found! Please run profile at least once!"
         logs = DirectoryReal(self.directory, "logs")
 
         error_files = ['latest.log', 'debug.log', 'latest_stdout.log']
         search_filename = ''
-        for potential in error_files:
-            if logs.has(potential) and error in FileReal(logs, potential).read().decode(errors="ignore"):
-                search_filename = potential
+        for candidate in error_files:
+            log_exists = logs.has(candidate)
+            log = FileReal(logs, candidate)
+            log_has_error = error in log.read().decode(errors="ignore")
+            if log_exists and log_has_error:
+                search_filename = candidate
 
         if search_filename:
             print(f'Scanning "{search_filename}"')
         else:
             print('Scanning all')
 
-        # TODO: Determine which graph is causing the provided error by disabling half the remaining graphs
-        # each time until a single graph is left
-            
-        # TODO: Sort the remaining graph, then disable the leaves, and iterate to each of the parents if
-        # all of that parent's children have been visited
+        # TODO: Determine which graph is causing the provided error
+        # by disabling half the remaining graphs each time until a
+        # single graph is left
+
+        # find the only True value in the list
+        # number of iterations = int(ceil(log2(len(graph_list))))
+        def binaryGraphElimination(_list: List[DependencyGraph]) -> int:
+            __list = [DependencyGraph(Mod(self))] + _list
+            left = 0
+            right = len(__list) - 1
+
+            while left <= right:
+                mid = (left + right) // 2
+                # TODO: Disable graphs in __list[mid:]
+                for graph in __list[mid:]:
+                    graph.disable_all()
+                result = self.run()  # return True if run occurs successfully
+                if any(__list[mid:]):
+                    left = mid + 1
+                else:
+                    right = mid - 1
+
+            return right - 1
+
+        # bad_graph1 = binaryGraphElimination(graph_list)
+        # bad_graph2 = None
+
+        # if bad_graph1 >= 0:
+        #     graph_list.remove(bad_graph1)
+        #     bad_graph2 = binaryElimination(graph_list)
+        # else:
+        #     ... # no error??
+
+        # if bad_graph2 >= 0:
+        #     bad_mod1 = find_bad_mod(bad_graph1)
+        #     bad_mod2 = find_bad_mod(bad_graph2)
+        #     report_mod_conflict(bad_mod1, bad_mod2)
+        # else:
+        #     bad_mod1 = find_bad_mod(bad_graph1)
+        #     bad_mod2 = None
+        #     if bad_mod1 >= 0:
+        #         bad_graph1.freeze(bad_mod1)
+        #         bad_mod2 = find_bad_mod(bad_graph1)
+        #         if bad_mod2:
+        #             report_mod_conflict(bad_mod1, bad_mod2)
+        #         else:
+        #             report_bad_mod(bad_mod1)
+        #     else:
+        #         ... # no error??
+
+        # TODO: Sort the remaining graph, then disable the leaves,
+        # and iterate to each of the parents if all of that parent's
+        # children have been visited
 
         return True
-

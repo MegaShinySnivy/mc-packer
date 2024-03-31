@@ -1,8 +1,9 @@
 
-# from typing import 
+# from typing import
 
-# from filesystem import FileReal, DirectoryBase
+from filesystem import FileReal, DirectoryBase
 
 
-# class Log(FileReal):
-#     def watch_for(self, pattern: )
+class Log(FileReal):
+    def identifyError(self, error: str) -> bool:
+        return False

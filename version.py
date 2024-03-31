@@ -6,10 +6,16 @@ import sys
 import re
 
 
-class BadVersionString(ValueError): pass
-class ValidationFailure(Exception): pass
-
 VERSION_DELIMITERS = ['+', '_', ':']
+
+
+class BadVersionString(ValueError):
+    ...
+
+
+class ValidationFailure(Exception):
+    ...
+
 
 @define
 class VersionPart:
@@ -17,11 +23,11 @@ class VersionPart:
 
     def __str__(self) -> str:
         return '.'.join([str(x) for x in self.components])
-    
+
     def __repr__(self):
         return self.__str__()
 
-    def __eq__(self, other: 'VersionPart') -> bool: # type: ignore[override]
+    def __eq__(self, other: 'VersionPart') -> bool:  # type: ignore[override]
         for i in range(max(len(self.components), len(other.components))):
             a = self.components[i] if len(self.components) > i else 0
             b = other.components[i] if len(other.components) > i else 0
@@ -30,7 +36,7 @@ class VersionPart:
             elif a > b:
                 return False
         return True
-    
+
     def __lt__(self, other: 'VersionPart') -> bool:
         for i in range(max(len(self.components), len(other.components))):
             a = self.components[i] if len(self.components) > i else 0
@@ -40,7 +46,7 @@ class VersionPart:
             elif a > b:
                 return False
         return False
-    
+
     def __le__(self, other: 'VersionPart') -> bool:
         for i in range(max(len(self.components), len(other.components))):
             a = self.components[i] if len(self.components) > i else 0
@@ -50,7 +56,7 @@ class VersionPart:
             elif a > b:
                 return False
         return True
-    
+
     def __gt__(self, other: 'VersionPart') -> bool:
         for i in range(max(len(self.components), len(other.components))):
             a = self.components[i] if len(self.components) > i else 0
@@ -60,7 +66,7 @@ class VersionPart:
             elif a < b:
                 return False
         return False
-    
+
     def __ge__(self, other: 'VersionPart') -> bool:
         for i in range(max(len(self.components), len(other.components))):
             a = self.components[i] if len(self.components) > i else 0
@@ -70,6 +76,7 @@ class VersionPart:
             elif a < b:
                 return False
         return True
+
 
 @define
 class Version:
@@ -81,7 +88,7 @@ class Version:
             return '-'.join([str(part) for part in self.parts])
         else:
             return "*"
-    
+
     def __repr__(self):
         return self.__str__()
 
@@ -131,11 +138,17 @@ class Version:
                 valid_parts.append(candidate)
 
         if len(valid_parts) > 0:
-            return cls(text, [VersionPart([int(x) for x in components.split('.') if x != '']) for components in valid_parts])
-            
+            return cls(
+                text, [
+                    VersionPart(
+                        [int(x) for x in components.split('.') if x != '']
+                    ) for components in valid_parts
+                ]
+            )
+
         raise BadVersionString(f"Invalid version string '{text}'")
 
-    def __eq__(self, other: 'Version') -> bool: # type: ignore[override]
+    def __eq__(self, other: 'Version') -> bool:  # type: ignore[override]
         for i in range(max(len(self.parts), len(other.parts))):
             a = self.parts[i] if len(self.parts) > i else VersionPart([0])
             b = other.parts[i] if len(other.parts) > i else VersionPart([0])
@@ -144,7 +157,7 @@ class Version:
             elif a > b:
                 return False
         return True
-    
+
     def __lt__(self, other: 'Version') -> bool:
         for i in range(max(len(self.parts), len(other.parts))):
             a = self.parts[i] if len(self.parts) > i else VersionPart([0])
@@ -154,7 +167,7 @@ class Version:
             elif a > b:
                 return False
         return False
-    
+
     def __le__(self, other: 'Version') -> bool:
         for i in range(max(len(self.parts), len(other.parts))):
             a = self.parts[i] if len(self.parts) > i else VersionPart([0])
@@ -164,7 +177,7 @@ class Version:
             elif a > b:
                 return False
         return True
-    
+
     def __gt__(self, other: 'Version') -> bool:
         for i in range(max(len(self.parts), len(other.parts))):
             a = self.parts[i] if len(self.parts) > i else VersionPart([0])
@@ -174,7 +187,7 @@ class Version:
             elif a < b:
                 return False
         return False
-    
+
     def __ge__(self, other: 'Version') -> bool:
         for i in range(max(len(self.parts), len(other.parts))):
             a = self.parts[i] if len(self.parts) > i else VersionPart([0])
@@ -185,10 +198,12 @@ class Version:
                 return False
         return True
 
+
 @define
 class VersionRangePart:
     bound: Version
     inclusive: bool
+
 
 @define
 class VersionRange:
@@ -199,14 +214,17 @@ class VersionRange:
         if self.upper.bound.text == "*" and self.lower.bound.text == "*":
             return "*"
         else:
-            return ('[' if self.lower.inclusive else '(') + f'{self.lower.bound},{self.upper.bound}' + (']' if self.upper.inclusive else ')')
+            lower_symbol = '[' if self.lower.inclusive else '('
+            upper_symbol = ']' if self.upper.inclusive else ')'
+            versions = f'{self.lower.bound},{self.upper.bound}'
+            return lower_symbol + versions + upper_symbol
 
     def __repr__(self):
         return self.__str__()
-    
+
     def contains(self, version: Version) -> bool:
         result = True
-        
+
         if self.lower.bound.text == "*":
             pass
         elif self.lower.inclusive:
@@ -232,13 +250,17 @@ class VersionRange:
         ranges: List['VersionRange'] = []
 
         if range_raw in ["*", ","]:
-            return [cls(VersionRangePart(Version.fromString("*"), True), VersionRangePart(Version.fromString("*"), True))]
+            any_range_part = VersionRangePart(Version.fromString("*"), True)
+            return [cls(any_range_part, any_range_part)]
         elif re.fullmatch(r'^[a-zA-Z0-9-+:_.]+$', range_raw):
             vrp = VersionRangePart(Version.fromString(range_raw), True)
             return [cls(vrp, vrp)]
 
         found = False
-        for range in re.findall(r'([\[\(][0-9a-zA-Z+-_:., ]*[\]\)])', range_raw):
+        for range in re.findall(
+                    r'([\[\(][0-9a-zA-Z+-_:., ]*[\]\)])',
+                    range_raw
+                ):
             found = True
             parts = range.split(',')
             lower = parts[0].strip()
@@ -253,8 +275,12 @@ class VersionRange:
             if upper in [']', ')']:
                 upper = '*' + upper
 
-            lower_part = VersionRangePart(Version.fromString(lower.strip('[]()')), lower[0]  == '[')
-            upper_part = VersionRangePart(Version.fromString(upper.strip('[]()')), upper[-1] == ']')
+            lower_vers = Version.fromString(lower.strip('[]()'))
+            upper_vers = Version.fromString(upper.strip('[]()'))
+
+            lower_part = VersionRangePart(lower_vers, lower[0]  == '[')
+            upper_part = VersionRangePart(upper_vers, upper[-1] == ']')
+
             ranges.append(VersionRange(lower_part, upper_part))
 
         if not found:
@@ -264,10 +290,10 @@ class VersionRange:
 
 
 def test():
-    a = Version.fromString('1.20.2+forge+0.1')
-    b = Version.fromString('1.20.3_forge_0.3.5a')
-    c = Version.fromString('1.20.3-neoforge-0.3.5c')
-    d = Version.fromString('1.20.4-neoforge-1.0.0a')
+    a = Version.fromString('1.20.2+forge+0.1'       )
+    b = Version.fromString('1.20.3_forge_0.3.5a'    )
+    c = Version.fromString('1.20.3-neoforge-0.3.5c' )
+    d = Version.fromString('1.20.4-neoforge-1.0.0a' )
     print('===========================================================')
     print(a)
     print(b)
@@ -289,9 +315,9 @@ def test():
     print(d)
     print(("[PASS]" if a <  d else "[FAIL]") + ": <"    )
     print(("[PASS]" if a <= d else "[FAIL]") + ": <="   )
-    print(("[PASS]" if not a >  d else "[FAIL]") + ": >"    )
-    print(("[PASS]" if not a >= d else "[FAIL]") + ": >="   )
-    print(("[PASS]" if not a == d else "[FAIL]") + ": =="   )
+    print(("[PASS]" if not a >  d else "[FAIL]") + ": >" )
+    print(("[PASS]" if not a >= d else "[FAIL]") + ": >=")
+    print(("[PASS]" if not a == d else "[FAIL]") + ": ==")
     print('===========================================================')
     ab = VersionRange(VersionRangePart(a, True), VersionRangePart(b, True))
     ac = VersionRange(VersionRangePart(a, True), VersionRangePart(c, True))
@@ -318,7 +344,5 @@ def test():
     print('===========================================================')
 
 
-
 if __name__ == '__main__':
     test()
-
